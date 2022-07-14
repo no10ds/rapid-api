@@ -49,3 +49,30 @@ Diagrams are compiled [here](docs/architecture/C4_diagrams) and show the intende
 - AWS (ECR, ECS, EC2, S3, Athena)
 - Terraform
 - Github Actions
+
+
+
+# Playwright browser tests
+
+## Manual localhost testing
+ 
+create local .env file with rapid variables
+```bash
+cp example.env .env
+```
+Once you .env is populated you may need to set them locally
+```bash
+set -a && source .env && set +a
+```
+Start the local instance and run playwright tests
+```bash
+make run-dev
+make test-chrome-journey
+```
+## Containerised test
+Start headless batect instance
+
+```bash
+make test-browsers
+```
+

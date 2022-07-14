@@ -45,6 +45,15 @@ test-e2e:		## Run e2e tests
 test-coverage:  	## Run python tests with coverage report
 	@./batect test-coverage
 
+test-chrome-journey: 	## Run playwright tests
+	@python3 test/e2e/playwright-chrome-local.py -v
+
+test-firefox-journey: 	## Run playwright tests
+	@python3 test/e2e/playwright-firefox-local.py -v
+
+test-browser-journey-headless: 	## Run playwright tests
+	@./batect playwright-headless-journey
+
 # Security  --------------------
 ##
 security: 		## Run security checks

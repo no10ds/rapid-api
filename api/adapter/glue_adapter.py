@@ -42,7 +42,9 @@ class GlueAdapter:
         self.glue_crawler_role = glue_crawler_role
         self.glue_connection_name = glue_connection_name
 
-    def create_crawler(self, resource_prefix: str, domain: str, dataset: str, tags: Dict[str, str]):
+    def create_crawler(
+        self, resource_prefix: str, domain: str, dataset: str, tags: Dict[str, str]
+    ):
         data_store = StorageMetaData(domain, dataset)
         try:
             self.glue_client.create_crawler(
@@ -141,7 +143,9 @@ class GlueAdapter:
             "StorageDescriptor": table_storage_desc,
         }
 
-    def _get_crawler_state(self, resource_prefix: str, domain: str, dataset: str) -> str:
+    def _get_crawler_state(
+        self, resource_prefix: str, domain: str, dataset: str
+    ) -> str:
         try:
             response = self.glue_client.get_crawler(
                 Name=self._generate_crawler_name(resource_prefix, domain, dataset)
@@ -152,7 +156,9 @@ class GlueAdapter:
                 f"Failed to get crawler state resource_prefix={resource_prefix}, domain = {domain} dataset = {dataset}"
             )
 
-    def _generate_crawler_name(self, resource_prefix: str, domain: str, dataset: str) -> str:
+    def _generate_crawler_name(
+        self, resource_prefix: str, domain: str, dataset: str
+    ) -> str:
         return resource_prefix + "_crawler/" + domain + "/" + dataset
 
     def _handle_crawler_create_error(self, error: ClientError):

@@ -42,7 +42,7 @@ class BaseJourneyTest(ABC):
 
 class TestUnauthenticatedJourneys(BaseJourneyTest):
     def test_http_request_is_redirected_to_https(self):
-        response = requests.get(f"https://{DOMAIN_NAME}status")
+        response = requests.get(f"https://{DOMAIN_NAME}")
         assert f"https://{DOMAIN_NAME}" in response.url
 
     def test_status_always_accessible(self):
@@ -124,6 +124,8 @@ class TestAuthenticatedJourneys(BaseJourneyTest):
     )
     cognito_client_id = credentials["CLIENT_ID"]
     cognito_client_secret = credentials["CLIENT_SECRET"]  # pragma: allowlist secret
+
+    print(cognito_client_id)
 
     access_token = None
 

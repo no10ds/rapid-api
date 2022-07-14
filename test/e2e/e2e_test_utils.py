@@ -14,7 +14,6 @@ class AuthenticationFailedError(Exception):
 
 def get_secret(secret_name: str) -> Dict:
     client = boto3.client(service_name="secretsmanager", region_name=AWS_REGION)
-
     try:
         get_secret_value_response = client.get_secret_value(SecretId=secret_name)
     except ClientError as error:

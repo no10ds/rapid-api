@@ -66,7 +66,12 @@ class DataService:
         return raw_filename, permanent_filename
 
     def upload_dataset(
-        self, resource_prefix: str, domain: str, dataset: str, filename: str, file_contents: str
+        self,
+        resource_prefix: str,
+        domain: str,
+        dataset: str,
+        filename: str,
+        file_contents: str,
     ) -> str:
         schema = self._get_schema(domain, dataset)
         if not schema:

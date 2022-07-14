@@ -4,7 +4,11 @@ import pytest
 from botocore.exceptions import ClientError
 
 from api.adapter.glue_adapter import GlueAdapter
-from api.common.config.aws import GLUE_TABLE_PRESENCE_CHECK_RETRY_COUNT, GLUE_CSV_CLASSIFIER, DATA_BUCKET
+from api.common.config.aws import (
+    GLUE_TABLE_PRESENCE_CHECK_RETRY_COUNT,
+    GLUE_CSV_CLASSIFIER,
+    DATA_BUCKET,
+)
 from api.common.config.aws import RESOURCE_PREFIX
 from api.common.custom_exceptions import (
     CrawlerCreateFailsError,
@@ -30,7 +34,10 @@ class TestGlueAdapterCrawlerMethods:
 
     def test_create_crawler(self):
         self.glue_adapter.create_crawler(
-            RESOURCE_PREFIX, "domain", "dataset", {"tag1": "value1", "tag2": "value2", "tag3": "value3"}
+            RESOURCE_PREFIX,
+            "domain",
+            "dataset",
+            {"tag1": "value1", "tag2": "value2", "tag3": "value3"},
         )
         self.glue_boto_client.create_crawler.assert_called_once_with(
             Name=RESOURCE_PREFIX + "_crawler/domain/dataset",
@@ -108,7 +115,9 @@ class TestGlueAdapterCrawlerMethods:
         )
 
         with pytest.raises(GetCrawlerError):
-            self.glue_adapter.check_crawler_is_ready(RESOURCE_PREFIX, "domain", "dataset")
+            self.glue_adapter.check_crawler_is_ready(
+                RESOURCE_PREFIX, "domain", "dataset"
+            )
 
     def test_check_crawler_is_ready(self):
         self.glue_boto_client.get_crawler.return_value = {
@@ -129,7 +138,9 @@ class TestGlueAdapterCrawlerMethods:
                 }
             }
             with pytest.raises(CrawlerIsNotReadyError):
-                self.glue_adapter.check_crawler_is_ready(RESOURCE_PREFIX, "domain", "dataset")
+                self.glue_adapter.check_crawler_is_ready(
+                    RESOURCE_PREFIX, "domain", "dataset"
+                )
 
             self.glue_boto_client.get_crawler.assert_called_with(
                 Name=RESOURCE_PREFIX + "_crawler/domain/dataset"
