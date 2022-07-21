@@ -10,7 +10,7 @@ from api.application.services.authorisation_service import (
     match_client_app_permissions,
     AcceptedScopes,
     match_user_permissions,
-    extract_client_app_scopes,
+    retrieve_permissions,
     extract_user_groups,
     protect_dataset_endpoint,
 )
@@ -24,27 +24,81 @@ from api.common.custom_exceptions import (
 )
 
 
-class TestExtractingPermissions:
+class TestRetrieveClientPermissions:
     @patch("jwt.decode")
+    @patch("api.application.services.authorisation_service.db_adapter")
     @patch("api.application.services.authorisation_service.jwks_client")
-    def test_extract_token_permissions_for_apps(self, mock_jwks_client, mock_decode):
+    def test_retrieve_permissions_from_db(self, mock_jwks_client, mock_db, mock_decode):
+        valid_token = "Bearer some token"
         mock_signing_key = Mock()
         mock_signing_key.key = "secret"
         mock_jwks_client.get_signing_key_from_jwt.return_value = mock_signing_key
 
         mock_decode.return_value = {
+            "sub": "some_client_id"
+        }
+        mock_db.get_permissions.return_value = ["SOME_PERMISSION", "ANOTHER_PERMISSION"]
+
+        retrieved_permissions = retrieve_permissions(valid_token)
+
+        mock_jwks_client.get_signing_key_from_jwt.assert_called_once_with(valid_token)
+        mock_decode.assert_called_once_with(valid_token, "secret", algorithms=["RS256"])
+        mock_db.get_permissions.assert_called_once_with("some_client_id")
+        assert retrieved_permissions == ["SOME_PERMISSION", "ANOTHER_PERMISSION"]
+
+    @patch("jwt.decode")
+    @patch("api.application.services.authorisation_service.db_adapter")
+    @patch("api.application.services.authorisation_service.jwks_client")
+    def test_retrieve_scopes_permissions_from_token_when_no_permissions_in_db(self, mock_jwks_client, mock_db, mock_decode):
+        valid_token = "Bearer some token"
+        mock_signing_key = Mock()
+        mock_signing_key.key = "secret"
+        mock_jwks_client.get_signing_key_from_jwt.return_value = mock_signing_key
+
+        mock_decode.return_value = {
+            "sub": "some_client_id",
             "scope": f"https://{DOMAIN_NAME}/SOME_SCOPE https://{DOMAIN_NAME}/ANOTHER_SCOPE"
         }
+        mock_db.get_permissions.return_value = []
 
-        token_scopes = extract_client_app_scopes(None)
+        token_scopes = retrieve_permissions(valid_token)
 
-        mock_jwks_client.get_signing_key_from_jwt.assert_called_once_with(None)
-        mock_decode.assert_called_once_with(None, "secret", algorithms=["RS256"])
+        mock_jwks_client.get_signing_key_from_jwt.assert_called_once_with(valid_token)
+        mock_decode.assert_called_once_with(valid_token, "secret", algorithms=["RS256"])
         assert token_scopes == ["SOME_SCOPE", "ANOTHER_SCOPE"]
+
+    def test_fails_when_invalid_token(self):
+        token = "invalid-token"
+        with pytest.raises(
+            AuthorisationError,
+            match="Not enough permissions or access token is missing/invalid",
+        ):
+            retrieve_permissions(token)
 
     @patch("jwt.decode")
     @patch("api.application.services.authorisation_service.jwks_client")
-    def test_extract_token_permissions_for_users(self, mock_jwks_client, mock_decode):
+    def test_fails_when_token_has_invalid_payload(
+        self, mock_jwks_client, mock_decode
+    ):
+        mock_signing_key = Mock()
+        mock_signing_key.key = "secret"
+        mock_jwks_client.get_signing_key_from_jwt.return_value = mock_signing_key
+
+        mock_decode.return_value = {
+            "invalid": ["read/domain/dataset", "write/domain/dataset"]
+        }
+
+        with pytest.raises(
+            AuthorisationError,
+            match="Not enough permissions or access token is missing/invalid",
+        ):
+            retrieve_permissions(None)
+
+
+class TestRetrieveUserPermissions:
+    @patch("jwt.decode")
+    @patch("api.application.services.authorisation_service.jwks_client")
+    def test_retrieve_token_permissions_for_users(self, mock_jwks_client, mock_decode):
         mock_signing_key = Mock()
         mock_signing_key.key = "secret"
         mock_jwks_client.get_signing_key_from_jwt.return_value = mock_signing_key
@@ -60,44 +114,9 @@ class TestExtractingPermissions:
         mock_decode.assert_called_once_with(None, "secret", algorithms=["RS256"])
         assert token_scopes == ["READ/domain/dataset", "WRITE/domain/dataset"]
 
-    def test_extract_scopes_from_invalid_client_app_token(self):
-        token = "invalid-token"
-        with pytest.raises(
-            AuthorisationError,
-            match="Not enough permissions or access token is missing/invalid",
-        ):
-            extract_client_app_scopes(token)
-
-    def test_extract_scopes_from_invalid_user_token(self):
-        token = "invalid-token"
-        with pytest.raises(
-            AuthorisationError,
-            match="Not enough permissions or access token is missing/invalid",
-        ):
-            extract_user_groups(token)
-
     @patch("jwt.decode")
     @patch("api.application.services.authorisation_service.jwks_client")
-    def test_extract_handles_valid_client_app_token_with_invalid_payload(
-        self, mock_jwks_client, mock_decode
-    ):
-        mock_signing_key = Mock()
-        mock_signing_key.key = "secret"
-        mock_jwks_client.get_signing_key_from_jwt.return_value = mock_signing_key
-
-        mock_decode.return_value = {
-            "invalid": ["read/domain/dataset", "write/domain/dataset"]
-        }
-
-        with pytest.raises(
-            AuthorisationError,
-            match="Not enough permissions or access token is missing/invalid",
-        ):
-            extract_client_app_scopes(None)
-
-    @patch("jwt.decode")
-    @patch("api.application.services.authorisation_service.jwks_client")
-    def test_extract_handles_valid_user_token_with_invalid_payload(
+    def test_retrieve_handles_valid_user_token_with_invalid_payload(
         self, mock_jwks_client, mock_decode
     ):
         mock_signing_key = Mock()
@@ -113,6 +132,14 @@ class TestExtractingPermissions:
             match="Not enough permissions or access token is missing/invalid",
         ):
             extract_user_groups(None)
+
+    def test_retrieve_scopes_from_invalid_user_token(self):
+        token = "invalid-token"
+        with pytest.raises(
+                AuthorisationError,
+                match="Not enough permissions or access token is missing/invalid",
+        ):
+            extract_user_groups(token)
 
 
 class TestProtectEndpoint:
@@ -164,14 +191,17 @@ class TestProtectEndpoint:
 
     @patch("api.application.services.authorisation_service.jwks_client")
     @patch("jwt.decode")
+    @patch("api.application.services.authorisation_service.db_adapter")
     @patch(
         "api.application.services.authorisation_service.match_client_app_permissions"
     )
     def test_matches_client_permissions_when_client_token_provided_from_programmatic_client(
-        self, match_client_app_permissions, mock_decode, mock_jwks_client
+        self, match_client_app_permissions, mock_db, mock_decode, _mock_jwks_client
     ):
         browser_request = False
+        mock_db.get_permissions.return_value = []
         mock_decode.return_value = {
+            "sub": "some_client",
             "scope": f"https://{DOMAIN_NAME}/READ_PUBLIC https://{DOMAIN_NAME}/WRITE_PUBLIC"
         }
         protect_dataset_endpoint(
@@ -194,7 +224,7 @@ class TestProtectEndpoint:
         "api.application.services.authorisation_service.match_client_app_permissions"
     )
     def test_raises_exception_when_schema_not_found_for_dataset(
-        self, match_client_app_permissions, mock_decode, mock_jwks_client
+        self, match_client_app_permissions, mock_decode, _mock_jwks_client
     ):
         browser_request = False
         mock_decode.return_value = {

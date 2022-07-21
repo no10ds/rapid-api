@@ -11,6 +11,7 @@ from jwt import InvalidTokenError, PyJWKClient
 from starlette.requests import Request
 from starlette.status import HTTP_401_UNAUTHORIZED
 
+from api.adapter.dynamodb_adapter import DynamoDBAdapter
 from api.adapter.s3_adapter import S3Adapter
 from api.common.config.auth import (
     IDENTITY_PROVIDER_TOKEN_URL,
@@ -60,6 +61,7 @@ oauth2_scheme = OAuth2ClientCredentials(token_url=IDENTITY_PROVIDER_TOKEN_URL)
 oauth2_user_scheme = OAuth2UserCredentials()
 jwks_client = PyJWKClient(COGNITO_JWKS_URL)
 s3_adapter = S3Adapter()
+db_adapter = DynamoDBAdapter()
 
 
 def is_browser_request(request: Request) -> bool:
@@ -108,9 +110,9 @@ def protect_dataset_endpoint(
 
 def check_client_app_permissions(client_token, dataset, domain, security_scopes):
     try:
-        token_scopes = extract_client_app_scopes(client_token)
-        endpoint_scopes = security_scopes.scopes
-        match_client_app_permissions(token_scopes, endpoint_scopes, domain, dataset)
+        permissions = retrieve_permissions(client_token)
+        endpoint_permissions = security_scopes.scopes
+        match_client_app_permissions(permissions, endpoint_permissions, domain, dataset)
     except SchemaNotFoundError:
         raise HTTPException(
             status_code=400,
@@ -135,11 +137,14 @@ def extract_user_groups(token: str) -> List[str]:
         )
 
 
-def extract_client_app_scopes(token: str) -> List[str]:
+def retrieve_permissions(token: str) -> List[str]:
     try:
         payload = _get_validated_token_payload(token)
-        scopes = payload["scope"].split()
-        return [scope.split(COGNITO_RESOURCE_SERVER_ID + "/", 1)[1] for scope in scopes]
+        retrieved_permissions = db_adapter.get_permissions(payload["sub"])
+        if not retrieved_permissions:
+            scopes = payload["scope"].split()
+            retrieved_permissions = [scope.split(COGNITO_RESOURCE_SERVER_ID + "/", 1)[1] for scope in scopes]
+        return retrieved_permissions
     except (InvalidTokenError, KeyError):
         AppLogger.warning(f"Invalid token format token={token}")
         raise AuthorisationError(

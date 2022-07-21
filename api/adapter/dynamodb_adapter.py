@@ -46,6 +46,9 @@ class DynamoDBAdapter:
         permissions_list = [self._generate_permission_item(item) for item in table_items['Items']]
         return self._validate_permissions(permissions_list, scopes)
 
+    def get_permissions(self, subject_id: str):
+        pass
+
     def _validate_permissions(self, permissions_list, scopes):
         valid_permission_ids = []
         for scope in scopes:
