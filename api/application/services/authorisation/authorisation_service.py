@@ -1,7 +1,5 @@
-from dataclasses import dataclass
-from typing import Optional, List, Set
+from typing import Optional, List
 
-import jwt
 from fastapi import Depends, HTTPException
 from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
 from fastapi.security import OAuth2
@@ -12,12 +10,12 @@ from starlette.requests import Request
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 from api.adapter.s3_adapter import S3Adapter
+from api.application.services.authorisation.acceptable_permissions import generate_acceptable_scopes
+from api.application.services.authorisation.token_utils import parse_token, _get_validated_token_payload
 from api.common.config.auth import (
     IDENTITY_PROVIDER_TOKEN_URL,
     COGNITO_JWKS_URL,
     COGNITO_RESOURCE_SERVER_ID,
-    Action,
-    SensitivityLevel,
     RAPID_ACCESS_TOKEN,
 )
 from api.common.custom_exceptions import (
@@ -59,7 +57,6 @@ class OAuth2UserCredentials:
 
 oauth2_scheme = OAuth2ClientCredentials(token_url=IDENTITY_PROVIDER_TOKEN_URL)
 oauth2_user_scheme = OAuth2UserCredentials()
-jwks_client = PyJWKClient(COGNITO_JWKS_URL)
 s3_adapter = S3Adapter()
 
 
@@ -144,11 +141,6 @@ def have_credentials(browser_request: bool, client_token: str, user_token: str) 
     ) or have_client_credentials(client_token)
 
 
-def parse_token(token: str) -> Token:
-    payload = _get_validated_token_payload(token)
-    return Token(payload)
-
-
 def check_permissions(
     token: Token, endpoint_scopes: List[str], domain: str, dataset: str
 ):
@@ -207,7 +199,8 @@ def extract_client_app_scopes(token: str) -> List[str]:
 def match_client_app_permissions(
     token_scopes: list, endpoint_scopes: list, domain: str = None, dataset: str = None
 ):
-    acceptable_scopes = generate_acceptable_scopes(endpoint_scopes, domain, dataset)
+    sensitivity = s3_adapter.get_dataset_sensitivity(domain, dataset)
+    acceptable_scopes = generate_acceptable_scopes(endpoint_scopes, sensitivity, domain)
     if not acceptable_scopes.satisfied_by(token_scopes):
         raise AuthorisationError("Not enough permissions to access endpoint")
 
@@ -233,70 +226,3 @@ def match_user_permissions(
         raise AuthorisationError("Not enough permissions to access endpoint")
 
 
-@dataclass
-class AcceptedScopes:
-    required: Set[str]
-    optional: Set[str]
-
-    def satisfied_by(self, token_scopes: List[str]) -> bool:
-        all_required = all(
-            [required_scope in token_scopes for required_scope in self.required]
-        )
-        any_optional = (
-            any([any_scope in token_scopes for any_scope in self.optional])
-            if self.optional
-            else True
-        )
-
-        return all_required and any_optional
-
-
-def generate_acceptable_scopes(
-    endpoint_actions: List[str], domain: str = None, dataset: str = None
-) -> AcceptedScopes:
-    endpoint_actions = [Action.from_string(action) for action in endpoint_actions]
-
-    required_scopes = set()
-    optional_scopes = set()
-
-    for action in endpoint_actions:
-
-        if action in Action.standalone_actions():
-            required_scopes.add(action.value)
-            continue
-
-        acceptable_sensitivities = _get_acceptable_sensitivity_values(dataset, domain)
-
-        optional_scopes.add(f"{action.value}_ALL")
-        for acceptable_sensitivity in acceptable_sensitivities:
-            optional_scopes.add(f"{action.value}_{acceptable_sensitivity}")
-
-    return AcceptedScopes(required_scopes, optional_scopes)
-
-
-def _get_acceptable_sensitivity_values(dataset: str, domain: str) -> List[str]:
-    sensitivity = s3_adapter.get_dataset_sensitivity(domain, dataset)
-    if sensitivity == SensitivityLevel.PROTECTED:
-        return [f"{SensitivityLevel.PROTECTED.value}_{domain.upper()}"]
-    else:
-        implied_sensitivity_map = {
-            # The levels in the values imply the levels in the key
-            SensitivityLevel.PUBLIC: [
-                SensitivityLevel.PRIVATE,
-                SensitivityLevel.PUBLIC,
-            ],
-            SensitivityLevel.PRIVATE: [
-                SensitivityLevel.PRIVATE,
-            ],
-        }
-        acceptable_sensitivities = (
-            implied_sensitivity_map.get(sensitivity, [sensitivity])
-            if sensitivity
-            else []
-        )
-        return [sensitivity.value for sensitivity in acceptable_sensitivities]
-
-
-def _get_validated_token_payload(token):
-    signing_key = jwks_client.get_signing_key_from_jwt(token)
-    return jwt.decode(token, signing_key.key, algorithms=["RS256"])

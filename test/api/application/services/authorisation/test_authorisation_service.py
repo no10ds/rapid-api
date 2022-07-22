@@ -7,17 +7,15 @@ from fastapi.security import SecurityScopes
 from jwt.exceptions import InvalidTokenError
 
 from api.application.services.authorisation.authorisation_service import (
-    generate_acceptable_scopes,
     match_client_app_permissions,
-    AcceptedScopes,
     match_user_permissions,
     extract_client_app_scopes,
     extract_user_groups,
     protect_dataset_endpoint,
     secure_dataset_endpoint,
-    parse_token,
     check_credentials_availability,
 )
+from api.application.services.authorisation.acceptable_permissions import AcceptablePermissions, generate_acceptable_scopes
 from api.common.config.auth import SensitivityLevel
 from api.common.config.aws import DOMAIN_NAME
 from api.common.custom_exceptions import (
@@ -31,7 +29,7 @@ from api.domain.token import Token
 
 class TestExtractingPermissions:
     @patch("jwt.decode")
-    @patch("api.application.services.authorisation.authorisation_service.jwks_client")
+    @patch("api.application.services.authorisation.token_utils.jwks_client")
     def test_extract_token_permissions_for_apps(self, mock_jwks_client, mock_decode):
         mock_signing_key = Mock()
         mock_signing_key.key = "secret"
@@ -265,77 +263,6 @@ class TestCheckCredentialsAvailability:
             )
 
 
-class TestParseToken:
-    @patch("api.application.services.authorisation.authorisation_service.Token")
-    @patch(
-        "api.application.services.authorisation.authorisation_service._get_validated_token_payload"
-    )
-    def test_parses_user_token_with_groups(self, mock_token_payload, mock_token):
-        token = "user-token"
-
-        payload = {
-            "sub": "the-user-id",
-            "cognito:groups": ["group1", "group2"],
-            "scope": "scope1 scope2 scope3",
-        }
-
-        mock_token_payload.return_value = payload
-
-        parse_token(token)
-
-        mock_token_payload.assert_called_once_with("user-token")
-        mock_token.assert_called_once_with(payload)
-
-    @patch("api.domain.token.COGNITO_RESOURCE_SERVER_ID", "https://example.com")
-    @patch("api.application.services.authorisation.authorisation_service.Token")
-    @patch(
-        "api.application.services.authorisation.authorisation_service._get_validated_token_payload"
-    )
-    def test_parses_client_token_with_scopes(self, mock_token_payload, mock_token):
-        token = "client-token"
-
-        payload = {
-            "sub": "the-client-id",
-            "scope": "https://example.com/scope1 https://example.com/scope2",
-        }
-
-        mock_token_payload.return_value = payload
-
-        parse_token(token)
-
-        mock_token_payload.assert_called_once_with("client-token")
-        mock_token.assert_called_once_with(payload)
-
-    @patch("api.application.services.authorisation.authorisation_service.Token")
-    @patch(
-        "api.application.services.authorisation.authorisation_service._get_validated_token_payload"
-    )
-    def test_parses_user_token_with_no_permissions(
-        self, mock_token_payload, mock_token
-    ):
-        token = "user-token"
-
-        payload = {
-            "sub": "the-user-id",
-            "scope": "scope1 scope2 scope3",
-        }
-
-        mock_token_payload.return_value = payload
-
-        parse_token(token)
-
-        mock_token_payload.assert_called_once_with("user-token")
-        mock_token.assert_called_once_with(payload)
-
-    @patch("api.application.services.authorisation.authorisation_service.Token")
-    @patch(
-        "api.application.services.authorisation.authorisation_service._get_validated_token_payload"
-    )
-    def test_passes_errors_through(self, _mock_token_payload, mock_token):
-        mock_token.side_effect = ValueError("Error detail")
-
-        with pytest.raises(ValueError, match="Error detail"):
-            parse_token("user-token")
 
 
 class TestProtectEndpoint:
@@ -461,21 +388,21 @@ class TestAcceptedScopes:
         [
             # READ endpoint
             (
-                AcceptedScopes(required=set(), optional={"READ_ALL", "READ_PUBLIC"}),
-                ["READ_PUBLIC"],
+                    AcceptablePermissions(required=set(), optional={"READ_ALL", "READ_PUBLIC"}),
+                    ["READ_PUBLIC"],
             ),
             # WRITE endpoint
             (
-                AcceptedScopes(required=set(), optional={"WRITE_PUBLIC"}),
-                ["WRITE_PUBLIC"],
+                    AcceptablePermissions(required=set(), optional={"WRITE_PUBLIC"}),
+                    ["WRITE_PUBLIC"],
             ),
             # Standalone action endpoints
-            (AcceptedScopes(required={"USER_ADMIN"}, optional=set()), ["USER_ADMIN"]),
-            (AcceptedScopes(required={"DATA_ADMIN"}, optional=set()), ["DATA_ADMIN"]),
+            (AcceptablePermissions(required={"USER_ADMIN"}, optional=set()), ["USER_ADMIN"]),
+            (AcceptablePermissions(required={"DATA_ADMIN"}, optional=set()), ["DATA_ADMIN"]),
         ],
     )
     def test_scopes_satisfy_acceptable_scopes(
-        self, accepted_scopes: AcceptedScopes, token_scopes: List[str]
+        self, accepted_scopes: AcceptablePermissions, token_scopes: List[str]
     ):
         assert accepted_scopes.satisfied_by(token_scopes) is True
 
@@ -484,21 +411,21 @@ class TestAcceptedScopes:
         [
             # READ endpoint
             (
-                AcceptedScopes(required=set(), optional={"READ_ALL", "READ_PUBLIC"}),
-                [],
+                    AcceptablePermissions(required=set(), optional={"READ_ALL", "READ_PUBLIC"}),
+                    [],
             ),  # No token scopes
             # WRITE endpoint
             (
-                AcceptedScopes(required=set(), optional={"WRITE_PUBLIC"}),
-                ["READ_PUBLIC", "READ_ALL"],
+                    AcceptablePermissions(required=set(), optional={"WRITE_PUBLIC"}),
+                    ["READ_PUBLIC", "READ_ALL"],
             ),
             # Standalone action endpoints
-            (AcceptedScopes(required={"USER_ADMIN"}, optional=set()), ["READ_ALL"]),
-            (AcceptedScopes(required={"DATA_ADMIN"}, optional=set()), ["WRITE_ALL"]),
+            (AcceptablePermissions(required={"USER_ADMIN"}, optional=set()), ["READ_ALL"]),
+            (AcceptablePermissions(required={"DATA_ADMIN"}, optional=set()), ["WRITE_ALL"]),
         ],
     )
     def test_scopes_do_not_satisfy_acceptable_scopes(
-        self, accepted_scopes: AcceptedScopes, token_scopes: List[str]
+        self, accepted_scopes: AcceptablePermissions, token_scopes: List[str]
     ):
         assert accepted_scopes.satisfied_by(token_scopes) is False
 
@@ -506,75 +433,6 @@ class TestAcceptedScopes:
 class TestAppPermissionsMatching:
     def setup_method(self):
         self.mock_s3_client = Mock()
-
-    @patch("api.application.services.authorisation.authorisation_service.s3_adapter")
-    @pytest.mark.parametrize(
-        "domain, dataset, sensitivity, endpoint_scopes, acceptable_scopes",
-        [
-            (
-                "domain",
-                "dataset",
-                SensitivityLevel.PUBLIC,
-                ["READ"],
-                AcceptedScopes(  # noqa: E126
-                    required=set(),
-                    optional={
-                        "READ_ALL",
-                        "READ_PUBLIC",
-                        "READ_PRIVATE",
-                    },
-                ),
-            ),
-            (
-                "domain",
-                "dataset",
-                SensitivityLevel.PUBLIC,
-                ["USER_ADMIN", "READ"],
-                AcceptedScopes(  # noqa: E126
-                    required={"USER_ADMIN"},
-                    optional={
-                        "READ_ALL",
-                        "READ_PUBLIC",
-                        "READ_PRIVATE",
-                    },
-                ),
-            ),
-            (
-                "domain",
-                "dataset",
-                SensitivityLevel.PRIVATE,
-                ["USER_ADMIN", "READ", "WRITE"],  # noqa: E126
-                AcceptedScopes(  # noqa: E126
-                    required={"USER_ADMIN"},
-                    optional={
-                        "READ_ALL",
-                        "WRITE_ALL",
-                        "READ_PRIVATE",
-                        "WRITE_PRIVATE",
-                    },
-                ),
-            ),
-            (
-                None,
-                None,
-                None,
-                ["USER_ADMIN"],
-                AcceptedScopes(required={"USER_ADMIN"}, optional=set()),  # noqa: E126
-            ),
-        ],
-    )
-    def test_generate_acceptable_scopes(
-        self,
-        mock_s3_adapter,
-        domain: str,
-        dataset: str,
-        sensitivity: SensitivityLevel,
-        endpoint_scopes: List[str],
-        acceptable_scopes: AcceptedScopes,
-    ):
-        mock_s3_adapter.get_dataset_sensitivity.return_value = sensitivity
-        result = generate_acceptable_scopes(endpoint_scopes, domain, dataset)
-        assert result == acceptable_scopes
 
     @patch("api.application.services.authorisation.authorisation_service.s3_adapter")
     @pytest.mark.parametrize(
